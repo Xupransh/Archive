@@ -1,0 +1,242 @@
+PrintRev -
+
+I performed the following tests -
+
+[jmurty2@linux-a3 printRev]$ ./prev ladida di da di da di day
+"ladida" reversed is "adidal" (length 6)
+"di" reversed is "id" (length 32557)
+"da" reversed is "ad" (length 32557)
+"di" reversed is "id" (length 32557)
+"da" reversed is "ad" (length 32557)
+"di" reversed is "id" (length 32557)
+"day" reversed is "yad" (length 3)
+[jmurty2@linux-a3 printRev]$ ./prev 77gr7rgal
+"77gr7rgal" reversed is "lagr7rg77" (length 9)
+[jmurty2@linux-a3 printRev]$ ./prev
+syntax: ./prev <string1> <string2> ...
+[jmurty2@linux-a3 printRev]$ ./prev a
+"a" reversed is "a" (length 1)
+
+Upon an intial glance at the code, we can already imagine that the code is buggy since a variable is left uninitialized.
+This could cause weird behavior. First, we load in the file prev and set a break at the function print_reverse. On running
+the program without the break, with three inputs "lmao lmao lmao", we get the lengths of the inputs to be 52, but they're reversed correctly.
+This further hints at an initialization problem. On analyzing the stack frame of the function print_reverse using info frame,
+we find that the local variables are stored at the address $rbp-4. We now execute all the functions for the first input
+"lmao". Once we have the output, we start analyzing the stack frame we're in currently. -
+
+
+Continuing.
+"lmao" reversed is "oaml" (length 52)
+
+Breakpoint 1, 0x0000000000400601 in print_reverse ()
+(gdb) frame
+#0  0x0000000000400601 in print_reverse ()
+(gdb) bt
+#0  0x0000000000400601 in print_reverse ()
+#1  0x00000000004006d9 in main (argc=4, argv=0x7fffffffdf78) at prmain.c:32
+
+Here, we can use the frame info.
+
+#0  0x0000000000400601 in print_reverse ()
+(gdb) info frame
+Stack level 0, frame at 0x7fffffffde70:
+ rip = 0x400601 in print_reverse; saved rip 0x4006d2
+ called by frame at 0x7fffffffdea0
+ Arglist at 0x7fffffffde60, args:
+ Locals at 0x7fffffffde60, Previous frame's sp is 0x7fffffffde70
+ Saved registers:
+  rbp at 0x7fffffffde60, rip at 0x7fffffffde68
+(gdb)
+
+So indeed the local variables are stored around 0x7fffffffde60. We can analyze the surrounding memory locations. By running
+x/wd $rbp with various offsets, we finally arrive at the offset -4. And here, we find the culprit for the bug -
+
+(gdb) x/wd $rbp-4
+0x7fffffffde5c: 51
+
+The variable holds the value 51, which would be due to the lack of initialization. This means it would return 52 (which is what it returns.)
+
+As a sanity check, we can initialize the memory locations right after the stack frame for the print_return function is set up. This would give us the correct values.
+(set {int}0x7fffffffde5c = 0 etc would be used). Fixing the bug would simply require intializing rest.
+
+int rest = 0;
+
+The bug can also be fixed by returning 0 in the base case instead of returning rest. In the base case, rest is not initialized, which means the value returned is not 0.
+
+Prime Numbers -
+
+On an initial analysis of the output, it is clear that the numbers that are wrongly being called prime are squares of prime numbers, ie, 4,9,25,49,121 etc. This suggests
+a set up where the numbers being eliminated are multiples of the prime that are 1 more than it. So, for 2, 2 times 3,4,5,6 etc will be
+eliminated. This could be our bug but only an analysis of the stack frame or the assembly code would be able to confirm this.
+
+After setting up breaks at is_prime and divides_evenly, we run the program. It stops at is_prime. Running disassemble gives this.
+
+0x000000000040059a <+0>:	push   %rbp
+0x000000000040059b <+1>:	mov    %rsp,%rbp
+=> 0x000000000040059e <+4>:	sub    $0x20,%rsp
+0x00000000004005a2 <+8>:	mov    %edi,-0x14(%rbp)
+0x00000000004005a5 <+11>:	movl   $0x2,-0x4(%rbp)
+0x00000000004005ac <+18>:	jmp    0x4005cc <is_prime+50>
+0x00000000004005ae <+20>:	mov    -0x14(%rbp),%edx
+0x00000000004005b1 <+23>:	mov    -0x4(%rbp),%eax
+0x00000000004005b4 <+26>:	mov    %edx,%esi
+0x00000000004005b6 <+28>:	mov    %eax,%edi
+0x00000000004005b8 <+30>:	callq  0x400574 <divides_evenly>
+0x00000000004005bd <+35>:	test   %eax,%eax
+0x00000000004005bf <+37>:	je     0x4005c8 <is_prime+46>
+0x00000000004005c1 <+39>:	mov    $0x0,%eax
+0x00000000004005c6 <+44>:	jmp    0x4005dd <is_prime+67>
+0x00000000004005c8 <+46>:	addl   $0x1,-0x4(%rbp)
+0x00000000004005cc <+50>:	mov    -0x4(%rbp),%eax
+0x00000000004005cf <+53>:	imul   -0x4(%rbp),%eax
+0x00000000004005d3 <+57>:	cmp    -0x14(%rbp),%eax
+0x00000000004005d6 <+60>:	jl     0x4005ae <is_prime+20>
+0x00000000004005d8 <+62>:	mov    $0x1,%eax
+0x00000000004005dd <+67>:	leaveq
+
+Since this is only 23 lines of assembly, it can easily be converted into C. The C program would look something like this -
+
+int is_prime(int B)
+{
+    int A = 2;
+    while(A*A<B)
+    {
+      //check if A divides B evenly
+      //if it doesn't, change return value to 0
+      //if it does, increment A
+    }
+    
+    //return something (0 or 1)
+}
+
+So the program utilizes the fact that each composite has a factor less than OR EQUAL TO the square root of that number. Since our program uses 
+JL, it doesnt check for the equality which means squares of primes are considered prime. A simple fix would be to change the JL to JLE. (check for
+equality).  
+
+In the C code you would need to change A*A < B to A*A <= B.
+
+
+Sort. 
+
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 2
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 0 2
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 2 3
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 0 2
+[jmurty2@linux-a3 sort]$ ./sort input.txt
+-4 -1 0 2
+
+The input file is - 
+
+4
+-4 3 2 -1
+
+Clearly, the function behaves erraticaly when run multiple times. The error is probably in the initialization given the randomness.
+(The error could also be in a function that has any element of randomness involved.)
+
+First, we perform disassembly on the main function. We find that the functions in the program are heapify, swap, randomize, and heapSort. We set up 
+break points at all the functions. 
+
+The best way to best way to spot the bug is to constantly keep track of the array. Since there seems to be a problem with elements getting 
+duplicated, we can look for a spot where the array contains different elements than it's supposed to. This is my attempt to do the same - 
+
+
+
+Breakpoint 1, 0x0000000000400814 in heapify ()
+(gdb) print *6304336@4
+$116 = {3, -1, 2, -4}
+(gdb) s
+Single stepping until exit from function heapify,
+which has no line number information.
+0x00000000004009cf in heapSort ()
+(gdb) print *6304336@4
+$117 = {3, -1, 2, -4}
+(gdb) s
+Single stepping until exit from function heapSort,
+which has no line number information.
+
+Breakpoint 4, 0x0000000000400791 in swap ()
+(gdb) print *6304336@4
+$118 = {3, -1, 2, -4}
+(gdb) s
+Single stepping until exit from function swap,
+which has no line number information.
+0x0000000000400a04 in heapSort ()
+(gdb) print *6304336@4
+$119 = {2, -1, 2, -4}
+(gdb) bt
+#0  0x0000000000400a04 in heapSort ()
+#1  0x0000000000400b68 in main ()
+(gdb)
+ 
+So clearly somewhere inside swap, the wrong values were passed, since this swap was called by heapSort, this is probably where the bug lies.
+Sort is a simple function that doesn't seem to have any bugs. 
+
+Upon a careful analysis of the memory addresses surrounding the array, we find that the addresses look like this - 
+
+
+(gdb) print *6304336
+$123 = 2
+(gdb) print *6304340
+$127 = -1
+(gdb) print *6304344
+$128 = 2
+(gdb) print *6304348
+$133 = -4
+(gdb) print *6304352
+$134 = 3
+
+So somehow, the 3 instead being swapped with the 2 in the correct index, got pushed out of the array. This suggests that the wrong index was passed into swap. To pinpoint the bug we'll need to see how heapSort passes the parameters into swap. Since after heapify, heapSort goes to heapSort+73, and then into swap, we can analyze the assembly code
+between them. 
+
+   0x00000000004009e1 <+73>:	mov    -0x4(%rbp),%eax
+   0x00000000004009e4 <+76>:	cltq
+   0x00000000004009e6 <+78>:	lea    0x0(,%rax,4),%rdx
+   0x00000000004009ee <+86>:	mov    -0x18(%rbp),%rax
+   0x00000000004009f2 <+90>:	add    %rax,%rdx
+   0x00000000004009f5 <+93>:	mov    -0x18(%rbp),%rax
+   0x00000000004009f9 <+97>:	mov    %rdx,%rsi
+   0x00000000004009fc <+100>:	mov    %rax,%rdi
+   0x00000000004009ff <+103>:	callq  0x40078d <swap>
+
+We can check the values in rsi and rdi. rsi holds an address outside the array (6304352). Since rsi holds the value of rdx, we can see that the bug is probably somewhere between the lines +73 and +90. A good way to simulate the bug is by doing this - 
+
+(gdb) set *(int *) 6304352 = 2
+(gdb) print *6304336@6
+$188 = {-4, 3, 2, -1, 2, 0}
+
+On further analysis, we find that on the first pass, the number to be swapped is always swapped with a number outside the index of the array. Somehow, there seems to be 
+a number (the correct number to be swapped, or a duplicate of another entry in the array) at that particular index. My guess is that given the random nature of the error,
+the randomization function in the code is putting a value outside the bounds of the array and then the swap function is being called with that index instead of the last
+one. The way to solve the bug would be to remove the randomization function entirely and pass in the correct values to the swap function. Heap sort doesn't seem to require
+an element of randomness unlike quicksort where a random pivot can be chosen, which means the algorithm can be implemented without using a random function. 
+
+
+
+
+
+
+
+
+
+
+
+
+  

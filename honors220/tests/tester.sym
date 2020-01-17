@@ -1,0 +1,9 @@
+// Symbol table
+// Scope level 0:
+//	Symbol Name       Page Address
+//	----------------  ------------
+//	PART1             3003
+//	PART2             3009
+//	STRING            3012
+//	STACK             3037
+

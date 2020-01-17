@@ -1,0 +1,11 @@
+// Symbol table
+// Scope level 0:
+//	Symbol Name       Page Address
+//	----------------  ------------
+//	NAME1             600D
+//	NAME2             600F
+//	NAME3             6011
+//	NAME4             6013
+//	NAME5             6015
+//	NAME6             6017
+
